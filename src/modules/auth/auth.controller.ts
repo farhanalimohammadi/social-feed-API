@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface.js';
 import { AuthService } from './auth.service.js';
@@ -8,6 +9,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 
 
 //تمام درخوایت های auth به اینجا ارسال مشه
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
@@ -27,6 +29,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   //اینجا با یه دیتگتور سفارسی راحت با یه کلمه  اطلاعتت امن کاربر رو دریافت کردیم 
   me(@CurrentUser() user: AuthenticatedUser): { user: AuthenticatedUser } {
     //در نهایت اطلاعت کاربر رو بدون پیورد و به عنوان پروفایل بهش نشون میده

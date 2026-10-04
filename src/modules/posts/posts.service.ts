@@ -3,9 +3,11 @@ import type { PaginationQueryDto } from '../../common/dto/pagination-query.dto.j
 import type { Paginated } from '../../common/interfaces/paginated-response.interface.js';
 import { buildMeta, toSkipTake } from '../../common/utils/pagination.util.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
+import { toCommentResponse } from '../comments/comments.mapper.js';
+import { commentReadSelect } from '../comments/comments.select.js';
 import { PostsFeedCache } from './cache/posts-feed.cache.js';
 import type { CreatePostDto } from './dto/create-post.dto.js';
-import { toPostResponse, type PostResponse } from './posts.mapper.js';
+import { toPostResponse, type PostResponse, type PostThreadResponse } from './posts.mapper.js';
 import { postReadSelect } from './posts.select.js';
 
 @Injectable()
@@ -71,6 +73,25 @@ export class PostsService {
     const post = await this.prisma.post.findUnique({ where: { id }, select: postReadSelect });
     if (!post) throw new NotFoundException('Post not found');
     return toPostResponse(post);
+  }
+
+  // پست و صفحه‌ی کامنت‌های سطح اول به‌صورت موازی خوانده می‌شوند (partial index comments_top_level_idx)؛ CommentsService به PostsModule وابسته است و اینجا inject نمی‌شود تا وابستگی حلقوی ایجاد نشود
+  async findThread(id: string, { page, limit }: PaginationQueryDto): Promise<PostThreadResponse> {
+    const where = { postId: id, parentCommentId: null };
+    const [post, totalItems, rows] = await Promise.all([
+      this.findById(id),
+      this.prisma.comment.count({ where }),
+      this.prisma.comment.findMany({
+        where,
+        select: commentReadSelect,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...toSkipTake(page, limit),
+      }),
+    ]);
+    return {
+      ...post,
+      comments: { data: rows.map(toCommentResponse), meta: buildMeta(page, limit, totalItems) },
+    };
   }
 
   invalidateFeedCache(): Promise<void> {

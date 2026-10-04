@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface.js';
@@ -6,12 +7,14 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { CommentsService } from './comments.service.js';
 import { CreateCommentDto } from './dto/create-comment.dto.js';
 
+@ApiTags('comments')
 @Controller('posts/:postId/comments')
 export class CommentsController {
   constructor(private readonly comments: CommentsService) {}
 
   @Post()
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   create(
     @Param('postId', new ParseUUIDPipe({ version: '4' })) postId: string,
     @CurrentUser() user: AuthenticatedUser,

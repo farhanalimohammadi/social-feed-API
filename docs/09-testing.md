@@ -32,11 +32,13 @@
 | `src/modules/auth/auth.service.spec.ts` | ۳ | برای ایمیل ناموجود هم `compare` با dummy hash اجرا می‌شود. رمز اشتباه همان خطا را می‌دهد. توکن با `{ sub }` صادر می‌شود و `passwordHash` در خروجی نیست. |
 | `src/modules/comments/comments.service.spec.ts` | ۸ | ساخت کامنت سطح اول با invalidation. پست ناموجود `404` می‌دهد و invalidation انجام نمی‌شود. والد از پست دیگر `400` می‌دهد و `create` صدا زده نمی‌شود. والد ناموجود `404` می‌دهد. `findByAuthor` با `where: { authorId }`. فقط کامنت‌های سطح اول. فقط پاسخ‌های مستقیم. پاسخ‌های کامنتی خارج از این پست `404` می‌دهد. |
 | `src/modules/posts/posts-feed.codec.spec.ts` | ۶ | بازسازی Date. پذیرش `latestComment: null`. رد JSON نامعتبر، شکل نادرست، تاریخ نامعتبر و `meta` ناقص (چهار مورد با `it.each`). |
-| `src/modules/posts/posts.service.spec.ts` | ۵ | در HIT به پایگاه داده نمی‌رود. در MISS با همان generation ذخیره می‌کند. پس از `create` invalidation انجام می‌شود. `findByAuthor` با `skip: 10, take: 5` برای صفحه‌ی ۳. `404` برای پست ناموجود. |
+| `src/modules/posts/posts.service.spec.ts` | ۸ | در HIT به پایگاه داده نمی‌رود. در MISS با همان generation ذخیره می‌کند. پس از `create` invalidation انجام می‌شود. `findByAuthor` با `skip: 10, take: 5` برای صفحه‌ی ۳. `404` برای پست ناموجود. `findThread` فقط کامنت‌های سطح اول را با `skip: 5, take: 5` می‌خواند و `meta` درست دارد. thread پست ناموجود `404` می‌دهد. `latestComment.text` به ۲۸۰ کاراکتر به‌همراه `…` کوتاه می‌شود. |
+| `src/modules/comments/dto/create-comment.dto.spec.ts` | ۶ | با `ValidationPipe` واقعی: پذیرش `parentCommentId`. پذیرش `parent_comment_id` و نگاشت آن به `parentCommentId`. کامنت سطح اول بدون والد. پذیرش هر دو فیلد با مقدار برابر. رد مقدار متفاوت و UUID نامعتبر (`it.each`). |
+| `src/common/utils/text.util.spec.ts` | ۳ | متن کوتاه بدون تغییر. برش در سقف با `…`. عدم شکستن surrogate pair در مرز برش. |
 | `src/modules/users/users.mapper.spec.ts` | ۳ | ترکیب جدیدترین‌ها با برش به سقف. tie-break با `id` نزولی. excerpt حداکثر ۲۸۱ کاراکتر (۲۸۰ کاراکتر به‌همراه `…`). |
 | `src/modules/users/users.service.spec.ts` | ۵ | `404` برای کاربر ناموجود. آمار درست و `take: 5` در هر دو query. واگذاری تاریخچه‌ی پست‌ها و کامنت‌ها. برای کاربر ناموجود `404` و عدم اجرای query تاریخچه. |
 
-جمع: **۷ فایل و ۳۳ تست**.
+جمع: **۹ فایل و ۴۵ تست**.
 
 ## تست‌های Integration
 
@@ -73,12 +75,12 @@
 | فایل | تعداد | آنچه اثبات می‌کند |
 |---|---|---|
 | `auth.e2e-spec.ts` | ۴ | جریان کامل ثبت‌نام، ورود و `me`. ایمیل تکراری `409` می‌گیرد و فیلد `role` به دلیل `forbidNonWhitelisted` خطای `400`. ایمیل ناموجود و رمز اشتباه هر دو `401` با `message` یکسان می‌گیرند. `/me` بدون توکن `401` می‌دهد. |
-| `comments.e2e-spec.ts` | ۳ | کامنت و پاسخ ساخته می‌شوند. لیست سطح اول یک مورد با `totalReplies: 1` دارد و لیست پاسخ‌ها یک مورد. پاسخ با والدی از پست دیگر `400` می‌گیرد. کامنت بدون توکن `401` می‌گیرد. |
+| `comments.e2e-spec.ts` | ۴ | پاسخ با فیلد `parent_comment_id` ساخته می‌شود و `parentCommentId` درست برمی‌گردد. کامنت و پاسخ ساخته می‌شوند. لیست سطح اول یک مورد با `totalReplies: 1` دارد و لیست پاسخ‌ها یک مورد. پاسخ با والدی از پست دیگر `400` می‌گیرد. کامنت بدون توکن `401` می‌گیرد. |
 | `health.e2e-spec.ts` | ۲ | liveness مقدار `{ status: 'ok' }` برمی‌گرداند. readiness در حالت سالم `details.database.status === 'up'` دارد. |
-| `posts.e2e-spec.ts` | ۴ | پست ساخته می‌شود (`author.username` و `totalComments: 0`) و در فید دیده می‌شود. `authorId` در body خطای `400` می‌گیرد. شناسه‌ی ناموجود `404` می‌گیرد. تلاش یازدهم `429` با `Retry-After ≥ 1` می‌گیرد. |
+| `posts.e2e-spec.ts` | ۵ | پست ساخته می‌شود (`author.username` و `totalComments: 0`) و در فید دیده می‌شود. `GET /posts/:id` با `limit=1` دو صفحه کامنت سطح اول با نویسنده و `totalReplies` برمی‌گرداند و `totalComments` شامل پاسخ است. `authorId` در body خطای `400` می‌گیرد. شناسه‌ی ناموجود `404` می‌گیرد. تلاش یازدهم `429` با `Retry-After ≥ 1` می‌گیرد. |
 | `users.e2e-spec.ts` | ۲ | پروفایل با `stats` برابر `{ totalPosts: 1, totalComments: 1 }` و دو فعالیت اخیر. `meta.totalItems` تاریخچه‌ی پست‌ها و کامنت‌ها هر کدام ۱ است. کاربر ناموجود `404` و UUID نامعتبر `400` می‌گیرد. |
 
-جمع: **۵ فایل و ۱۵ تست**.
+جمع: **۵ فایل و ۱۷ تست**.
 
 ### چرا E2E از `configureApp` استفاده می‌کند؟
 

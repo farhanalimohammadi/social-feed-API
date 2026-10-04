@@ -43,6 +43,52 @@ describe('Posts (e2e)', () => {
       .expect(400);
   });
 
+  it('returns the post thread with paginated top-level comments and their reply counts', async () => {
+    const user = await createUser(app);
+    const server = app.app.getHttpServer();
+
+    const postId = (
+      await request(server)
+        .post('/api/v1/posts')
+        .set(auth(user))
+        .send({ content: 'thread' })
+        .expect(201)
+    ).body.id;
+    const first = (
+      await request(server)
+        .post(`/api/v1/posts/${postId}/comments`)
+        .set(auth(user))
+        .send({ text: 'first' })
+        .expect(201)
+    ).body.id;
+    await request(server)
+      .post(`/api/v1/posts/${postId}/comments`)
+      .set(auth(user))
+      .send({ text: 'second' })
+      .expect(201);
+    await request(server)
+      .post(`/api/v1/posts/${postId}/comments`)
+      .set(auth(user))
+      .send({ text: 'reply', parentCommentId: first })
+      .expect(201);
+
+    const thread = await request(server).get(`/api/v1/posts/${postId}?page=1&limit=1`).expect(200);
+
+    expect(thread.body.author.username).toBe(user.username);
+    expect(thread.body.totalComments).toBe(3);
+    expect(thread.body.comments.meta).toEqual({
+      currentPage: 1,
+      itemsPerPage: 1,
+      totalItems: 2,
+      totalPages: 2,
+    });
+    expect(thread.body.comments.data[0].text).toBe('second');
+    expect(thread.body.comments.data[0].author.username).toBe(user.username);
+
+    const page2 = await request(server).get(`/api/v1/posts/${postId}?page=2&limit=1`).expect(200);
+    expect(page2.body.comments.data[0]).toMatchObject({ id: first, totalReplies: 1 });
+  });
+
   it('returns 404 for an unknown post id', async () => {
     await request(app.app.getHttpServer())
       .get('/api/v1/posts/11111111-1111-4111-8111-111111111111')

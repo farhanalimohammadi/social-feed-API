@@ -137,7 +137,7 @@ FK ساده فقط وجود والد را تضمین می‌کند، نه این
 | readiness | پاسخ `503` به دلیل فیلتر سراسری جزئیات Terminus را ندارد. |
 | startup | لاگ `Database connection established` اتصال واقعی را تضمین نمی‌کند. |
 | خطای FK | نقض FK (در race نادر) به `500` تبدیل می‌شود، نه به کد مشخص. |
-| استقرار | Dockerfile، metrics و tracing وجود ندارد. |
+| استقرار | metrics و tracing وجود ندارد. اجرای کامل در Docker فقط با `--profile app` فعال می‌شود. |
 | تست | یک فایل `rate-limit.int-spec.ts` در `src` با هیچ پیکربندی‌ای اجرا نمی‌شود. `resetDatabase` استفاده نشده است. |
 
 ---

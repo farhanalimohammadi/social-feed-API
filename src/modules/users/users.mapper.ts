@@ -1,3 +1,4 @@
+import { excerpt } from '../../common/utils/text.util.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { profileUserSelect, recentCommentSelect, recentPostSelect } from './users.select.js';
 
@@ -18,10 +19,6 @@ export interface UserProfileResponse {
 }
 
 export const RECENT_ACTIVITY_LIMIT = 5;
-const EXCERPT_LENGTH = 280;
-
-const excerpt = (text: string): string =>
-  text.length > EXCERPT_LENGTH ? `${text.slice(0, EXCERPT_LENGTH)}…` : text;
 
 function compareNewestFirst(a: ActivityItem, b: ActivityItem): number {
   const diff = b.createdAt.getTime() - a.createdAt.getTime();

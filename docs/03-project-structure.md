@@ -44,7 +44,9 @@ social-feed-api/
 │   │   │   ├── authenticated-user.interface.ts
 │   │   │   └── paginated-response.interface.ts
 │   │   └── utils/
-│   │       └── pagination.util.ts
+│   │       ├── pagination.util.ts
+│   │       ├── text.util.ts
+│   │       └── text.util.spec.ts
 │   ├── infrastructure/
 │   │   ├── prisma/
 │   │   │   ├── prisma.module.ts
@@ -125,11 +127,13 @@ social-feed-api/
 │       ├── load-env.ts
 │       ├── redis-reset.ts
 │       └── test-app.ts
+├── .dockerignore
 ├── .env                    (محلی، در .gitignore)
 ├── .env.example
 ├── .gitignore
 ├── .nvmrc
 ├── .prettierrc
+├── Dockerfile
 ├── docker-compose.yml
 ├── nest-cli.json
 ├── package.json
@@ -160,7 +164,9 @@ social-feed-api/
 | `tsconfig.build.json` | پیکربندی build تولیدی | `nest build` | `extends: ./tsconfig.json`، `rootDir: ./src`، `outDir: ./dist`. فقط `src` را شامل می‌شود و `test` و `src/**/*.spec.ts` را حذف می‌کند. |
 | `nest-cli.json` | پیکربندی Nest CLI | `@nestjs/cli` | `sourceRoot: src`، `deleteOutDir: true` (پوشه‌ی `dist` قبل از هر build پاک می‌شود)، `tsConfigPath: tsconfig.build.json` |
 | `prisma7.config.ts` | پیکربندی Prisma 7 | `prisma/config`، `dotenv/config` | مسیر schema و migrationها را تعیین می‌کند و `datasource.url` را از `process.env.DATABASE_URL` می‌خواند. |
-| `docker-compose.yml` | سرویس‌های زیرساخت محلی | Docker Compose | فقط `postgres` و `redis`. خود برنامه سرویس Compose ندارد. |
+| `docker-compose.yml` | سرویس‌های زیرساخت محلی | Docker Compose | به‌طور پیش‌فرض فقط `postgres` و `redis`. سرویس‌های `migrate` و `app` در profile `app` هستند (`docker compose --profile app up --build`). |
+| `Dockerfile` | image برنامه | Docker | دو مرحله: `build` (`npm ci`، `prisma generate`، `nest build`) و `runtime` (`npm ci --omit=dev`، `dist/`، کاربر `node`). |
+| `.dockerignore` | محدود کردن context ساخت image | Docker | `node_modules`، `dist`، `src/generated`، `.git` و فایل‌های `.env` را حذف می‌کند. |
 | `vitest.config.ts` | پیکربندی Unit Test | Vitest | `include: ['src/**/*.spec.ts']`، `passWithNoTests: true` |
 | `vitest.int.config.ts` | پیکربندی Integration Test | Vitest | `include: ['test/database/**/*.int-spec.ts']`، `setupFiles: ['test/helpers/load-env.ts']`، `fileParallelism: false`، timeoutها ۲۰ ثانیه |
 | `vitest.e2e.config.ts` | پیکربندی E2E Test | Vitest | `include: ['test/e2e/**/*.e2e-spec.ts']`، همان setup و timeoutهای Integration |
@@ -255,6 +261,7 @@ social-feed-api/
 | `interfaces/authenticated-user.interface.ts` | نوع `AuthenticatedUser` | Guard، decorator، Controllerها | `id`، `username`، `email`، `createdAt` |
 | `interfaces/paginated-response.interface.ts` | نوع‌های `PaginationMeta` و `Paginated<T>` | همه‌ی لیست‌ها، codec فید | `meta`: `currentPage`، `itemsPerPage`، `totalItems`، `totalPages` |
 | `utils/pagination.util.ts` | محاسبات صفحه‌بندی | Serviceها | `toSkipTake(page, limit)` مقدار `{ skip: (page - 1) * limit, take: limit }` را برمی‌گرداند. `buildMeta` مقدار `totalPages` را با `Math.ceil(totalItems / limit)` حساب می‌کند. |
+| `utils/text.util.ts` | کوتاه‌سازی متن | mapperهای posts و users | `EXCERPT_LENGTH = 280` و `excerpt(text, maxLength)`. متن بلندتر از سقف بریده و `…` اضافه می‌شود. اگر مرز برش وسط یک surrogate pair باشد، یک واحد عقب می‌رود. |
 
 ---
 
@@ -298,15 +305,15 @@ social-feed-api/
 | فایل | مسئولیت | وابسته به | نکات مهم |
 |---|---|---|---|
 | `posts.module.ts` | تعریف ماژول | `RateLimitModule` | providerها: `PostsService`، `PostsFeedCache`، `PostCreateRateLimitGuard`. فقط `PostsService` export می‌شود. |
-| `posts.controller.ts` | مسیرهای `posts` | `PostsService`، Guardها | `POST /` با `JwtAuthGuard` و سپس `PostCreateRateLimitGuard`، `GET /` برای فید و `GET /:id` با `ParseUUIDPipe` نسخه‌ی ۴ |
-| `posts.service.ts` | منطق پست | `PrismaService`، `PostsFeedCache` | متدهای `create` (ساخت و سپس `invalidate`)، `findFeed` (cache-aside)، `findByAuthor`، `findById` (`404` با پیام `Post not found`) و `invalidateFeedCache` |
+| `posts.controller.ts` | مسیرهای `posts` | `PostsService`، Guardها | `POST /` با `JwtAuthGuard` و سپس `PostCreateRateLimitGuard`، `GET /` برای فید و `GET /:id` با `ParseUUIDPipe` نسخه‌ی ۴ و `PaginationQueryDto` (جزئیات پست با کامنت‌های سطح اول) |
+| `posts.service.ts` | منطق پست | `PrismaService`، `PostsFeedCache`، `commentReadSelect` و `toCommentResponse` | متدهای `create` (ساخت و سپس `invalidate`)، `findFeed` (cache-aside)، `findByAuthor`، `findById` (`404` با پیام `Post not found`)، `findThread` (پست و صفحه‌ی کامنت‌های سطح اول با سه query موازی) و `invalidateFeedCache` |
 | `posts.select.ts` | `postReadSelect` | Prisma types | author (`id`، `username`)، آخرین کامنت (`take: 1` با مرتب‌سازی `createdAt desc, id desc`) و `_count.comments` |
-| `posts.mapper.ts` | `toPostResponse` و انواع پاسخ | Prisma types | interfaceهای `AuthorSummary`، `LatestComment` و `PostResponse` |
+| `posts.mapper.ts` | `toPostResponse` و انواع پاسخ | Prisma types، `excerpt` | interfaceهای `AuthorSummary`، `LatestComment`، `PostResponse` و `PostThreadResponse`. متن `latestComment` با `excerpt` به snippet کوتاه می‌شود. |
 | `cache/posts-feed.cache.ts` | مدیریت cache فید | `RedisService`، `ConfigService`، codec | کلید generation، کلید صفحه، متدهای `get`، `set` و `invalidate` |
 | `cache/posts-feed.codec.ts` | پارس امن payload | انواع mapper | `parseFeedPage(raw)`: پارس JSON، بررسی شکل و بازسازی `Date`. در صورت هر ناسازگاری `null` برمی‌گرداند. |
 | `dto/create-post.dto.ts` | DTO ساخت پست | enum `ContentType` از کلاینت تولیدشده | `contentType` اختیاری با پیش‌فرض `text`. `content` با `trim`، غیرخالی و حداکثر ۵۰۰۰ کاراکتر. `caption` اختیاری با `trim` و طول ۱ تا ۵۰۰. |
 | `guards/post-create-rate-limit.guard.ts` | Guard سهمیه | `RateLimitService` | اگر `request.user` نباشد `401` برمی‌گرداند. در حالت degraded هدرها تنظیم نمی‌شوند. در صورت رد شدن، `Retry-After` و `429` برمی‌گرداند. |
-| `posts.service.spec.ts` | Unit Test سرویس | Vitest | پنج سناریو |
+| `posts.service.spec.ts` | Unit Test سرویس | Vitest | هشت سناریو |
 | `posts-feed.codec.spec.ts` | Unit Test codec | Vitest | در ریشه‌ی ماژول posts قرار دارد و codec را از `./cache/posts-feed.codec.js` import می‌کند. |
 
 ### ۹.۳ ماژول Comments (`src/modules/comments/`)
@@ -318,7 +325,7 @@ social-feed-api/
 | `comments.service.ts` | منطق کامنت | `PrismaService`، `PostsService` | `create`، `findByAuthor`، `findTopLevel` و `findReplies`، به‌همراه متدهای کمکی خصوصی `paginate`، `ensurePostExists` و `ensureParentBelongsToPost` |
 | `comments.select.ts` | `commentReadSelect` | Prisma types | `id`، `postId`، `parentCommentId`، `text`، `createdAt`، author و `_count.replies` |
 | `comments.mapper.ts` | `toCommentResponse` | Prisma types | interface `CommentResponse` با فیلد `totalReplies` |
-| `dto/create-comment.dto.ts` | DTO کامنت | class-validator/transformer | `text` با `trim`، غیرخالی و حداکثر ۲۰۰۰ کاراکتر. `parentCommentId` اختیاری و UUID نسخه‌ی ۴. |
+| `dto/create-comment.dto.ts` | DTO کامنت | class-validator/transformer | `text` با `trim`، غیرخالی و حداکثر ۲۰۰۰ کاراکتر. `parentCommentId` اختیاری و UUID نسخه‌ی ۴. `parent_comment_id` alias ورودی آن است و با `@Expose` و `@Transform` به `parentCommentId` نگاشت می‌شود. مقدار متفاوت برای دو فیلد با `ValidateBy` رد می‌شود. |
 | `comments.service.spec.ts` | Unit Test | Vitest | هشت سناریو |
 
 ### ۹.۴ ماژول Users (`src/modules/users/`)
@@ -329,7 +336,7 @@ social-feed-api/
 | `users.controller.ts` | مسیرهای `users/:userId/*` | `UsersService` | `profile`، `posts` و `comments`. همه عمومی‌اند و `userId` با `ParseUUIDPipe` نسخه‌ی ۴ بررسی می‌شود. |
 | `users.service.ts` | منطق پروفایل و تاریخچه | `PrismaService`، `PostsService`، `CommentsService` | `getProfile` با سه query موازی از طریق `Promise.all`. `getPosts` و `getComments` ابتدا `ensureUserExists` را اجرا می‌کنند و سپس کار را واگذار می‌کنند. |
 | `users.select.ts` | selectهای پروفایل | Prisma types | `profileUserSelect` (بدون `email`) شامل `_count.posts` و `_count.comments`. `recentPostSelect` و `recentCommentSelect`. |
-| `users.mapper.ts` | `toUserProfile` و `mergeRecentActivity` | Prisma types | `RECENT_ACTIVITY_LIMIT = 5` و `EXCERPT_LENGTH = 280`. ترکیب فعالیت‌ها با مرتب‌سازی `createdAt` نزولی و در صورت برابری، `id` نزولی. |
+| `users.mapper.ts` | `toUserProfile` و `mergeRecentActivity` | Prisma types، `excerpt` | `RECENT_ACTIVITY_LIMIT = 5`. excerpt فعالیت‌ها با `excerpt` از `common/utils/text.util.ts` (سقف ۲۸۰). ترکیب فعالیت‌ها با مرتب‌سازی `createdAt` نزولی و در صورت برابری، `id` نزولی. |
 | `users.service.spec.ts` | Unit Test سرویس | Vitest | پنج سناریو |
 | `users.mapper.spec.ts` | Unit Test mapper | Vitest | سه سناریو |
 

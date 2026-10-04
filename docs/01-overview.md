@@ -48,6 +48,8 @@ Social feed REST API built with NestJS, PostgreSQL (Prisma) and Redis
 
 - احراز هویت با JWT فقط از نوع access token
 - ساخت و خواندن پست، کامنت و پاسخ
+- جزئیات پست همراه با کامنت‌های سطح‌اول صفحه‌بندی‌شده
+- Dockerfile چندمرحله‌ای و اجرای کامل با `docker compose --profile app up --build`
 - فید عمومی با cache-aside در Redis و invalidation مبتنی بر generation
 - rate limit ثابت-پنجره (fixed window) برای ساخت پست، با اسکریپت Lua
 - پروفایل و تاریخچه‌ی عمومی کاربر
@@ -69,7 +71,6 @@ Social feed REST API built with NestJS, PostgreSQL (Prisma) and Redis
 | صفحه‌بندی cursor-based | وجود ندارد. صفحه‌بندی از نوع offset است |
 | rate limit برای login، register یا کامنت | وجود ندارد. فقط ساخت پست محدود شده است |
 | Swagger / OpenAPI | وجود ندارد |
-| Dockerfile برای خود برنامه | وجود ندارد. Docker Compose فقط PostgreSQL و Redis را اجرا می‌کند |
 | metrics و tracing | وجود ندارد |
 
 ## پشته‌ی تکنولوژی

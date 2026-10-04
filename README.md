@@ -11,7 +11,8 @@
 
 - ثبت‌نام، ورود و دریافت کاربر فعلی با JWT
 - ایجاد پست (text / image / video) با rate limit به‌ازای هر کاربر
-- فید صفحه‌بندی‌شده با تعداد کامنت‌ها و آخرین کامنت هر پست، همراه با cache در Redis
+- فید صفحه‌بندی‌شده با تعداد کامنت‌ها و خلاصه‌ی آخرین کامنت هر پست، همراه با cache در Redis
+- جزئیات پست (thread) همراه با لیست صفحه‌بندی‌شده‌ی کامنت‌های سطح‌اول، نویسنده و تعداد ریپلای هر کامنت
 - کامنت‌های سطح‌اول و ریپلای‌ها با تضمین هم‌پست بودن والد و فرزند در سطح دیتابیس (composite foreign key)
 - پروفایل کاربر با آمار و آخرین فعالیت‌ها، و تاریخچه‌ی صفحه‌بندی‌شده‌ی پست‌ها و کامنت‌ها
 - Health check جداگانه برای liveness و readiness
@@ -58,12 +59,13 @@
 | امنیت HTTP    | helmet                                  |
 | تست           | Vitest، Supertest                       |
 | کیفیت کد      | oxlint (type-aware)، Prettier           |
-| زیرساخت محلی  | Docker Compose (فقط PostgreSQL و Redis) |
+| زیرساخت محلی  | Docker Compose و Dockerfile چندمرحله‌ای |
 
 ## ۵. ساختار پوشه‌ها
 
 ```
 .github/workflows/ci.yml        پایپ‌لاین CI
+Dockerfile                      image چندمرحله‌ای اپلیکیشن (build و runtime)
 docker/postgres/init-test-db.sql ساخت دیتابیس تست در اولین راه‌اندازی volume
 prisma/
   schema.prisma                 مدل‌های User، Post، Comment و enum ContentType
@@ -141,16 +143,31 @@ node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'
 
 ## ۹. Docker
 
-`docker-compose.yml` فقط **PostgreSQL 16** و **Redis 7** (با AOF) را اجرا می‌کند و هر دو healthcheck دارند. Dockerfile برای خود اپلیکیشن **عمداً خارج از scope** این پروژه است؛ API مستقیماً با Node اجرا می‌شود.
+`docker-compose.yml` به‌طور پیش‌فرض فقط **PostgreSQL 16** و **Redis 7** (با AOF) را اجرا می‌کند و هر دو healthcheck دارند. این حالت برای توسعه است و API با `npm run start:dev` روی میزبان اجرا می‌شود.
 
 ```bash
-docker compose up -d      # اجرا
+docker compose up -d      # اجرای PostgreSQL و Redis
 docker compose ps         # وضعیت و health
 docker compose down       # توقف (داده‌ها در volume باقی می‌مانند)
 docker compose down -v    # توقف و حذف کامل داده‌ها
 ```
 
 اسکریپت `docker/postgres/init-test-db.sql` فقط در **اولین** راه‌اندازی یک volume خالی اجرا می‌شود و دیتابیس `social_feed_test` را می‌سازد.
+
+### اجرای کامل در Docker (profile `app`)
+
+```bash
+cp .env.example .env                       # JWT_SECRET را جایگزین کنید
+docker compose --profile app up --build -d # PostgreSQL، Redis، migrate و app
+docker compose --profile app ps
+docker compose --profile app down
+```
+
+- `Dockerfile` دو مرحله دارد: `build` (نصب کامل وابستگی‌ها، `prisma generate` و `nest build`) و `runtime` (فقط وابستگی‌های production و `dist/`، اجرا با کاربر غیر root `node`).
+- سرویس یک‌بارمصرف `migrate` روی image مرحله‌ی `build` اجرا می‌شود و `prisma migrate deploy` را بعد از healthy شدن PostgreSQL انجام می‌دهد. `app` فقط بعد از موفقیت آن و healthy شدن Redis بالا می‌آید.
+- `app` به‌جای `localhost` به نام سرویس‌ها (`postgres:5432` و `redis:6379`) وصل می‌شود؛ `DATABASE_URL` و `REDIS_URL` از `POSTGRES_*` ساخته می‌شوند و بقیه‌ی متغیرها از `.env` خوانده می‌شوند. اگر `POSTGRES_PASSWORD` کاراکتر خاص URL (مثل `@` یا `:`) داشته باشد، باید percent-encode شود.
+- API روی پورت `PORT` میزبان (همان مقدار `.env`) در دسترس است و healthcheck کانتینر `GET /api/v1/health` را بررسی می‌کند.
+- چون سرویس‌های `migrate` و `app` در profile `app` هستند، `docker compose up -d` معمولی رفتار قبلی را حفظ می‌کند.
 
 ## ۱۰. Prisma
 
@@ -178,8 +195,8 @@ migration دوم شامل SQL دستی است (CHECKها و partial indexها) �
 | GET  | `/api/v1/auth/me`                                   | JWT  | کاربر فعلی                                  |
 | POST | `/api/v1/posts`                                     | JWT  | ایجاد پست (با rate limit)                   |
 | GET  | `/api/v1/posts?page=&limit=`                        | -    | فید صفحه‌بندی‌شده (cache‌شده)               |
-| GET  | `/api/v1/posts/:id`                                 | -    | دریافت یک پست                               |
-| POST | `/api/v1/posts/:postId/comments`                    | JWT  | کامنت یا ریپلای (`parentCommentId` اختیاری) |
+| GET  | `/api/v1/posts/:id?page=&limit=`                    | -    | جزئیات پست + کامنت‌های سطح‌اول صفحه‌بندی‌شده |
+| POST | `/api/v1/posts/:postId/comments`                    | JWT  | کامنت یا ریپلای (`parent_comment_id` یا `parentCommentId` اختیاری) |
 | GET  | `/api/v1/posts/:postId/comments?page=&limit=`       | -    | کامنت‌های سطح‌اول                           |
 | GET  | `/api/v1/posts/:postId/comments/:commentId/replies` | -    | فرزندان مستقیم یک کامنت                     |
 | GET  | `/api/v1/users/:userId/profile`                     | -    | پروفایل، آمار و آخرین فعالیت‌ها             |
@@ -195,6 +212,41 @@ curl -X POST http://localhost:3001/api/v1/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"username":"alice","email":"alice@example.com","password":"a-strong-password"}'
 ```
+
+### جزئیات پست (`GET /posts/:id`)
+
+پاسخ همان فیلدهای آیتم فید (`author`، `totalComments`، `latestComment`) را دارد و علاوه بر آن یک فیلد `comments` با قالب صفحه‌بندی استاندارد (`data` و `meta`) برمی‌گرداند. `page` و `limit` در این endpoint کامنت‌های **سطح‌اول** را صفحه‌بندی می‌کنند. هر کامنت نویسنده (`author.id`، `author.username`) و `totalReplies` دارد. ریپلای‌های هر کامنت از `/comments/:commentId/replies` خوانده می‌شوند.
+
+```json
+{
+  "id": "…", "content": "…", "author": { "id": "…", "username": "alice" },
+  "totalComments": 3, "latestComment": { "…": "…" },
+  "comments": {
+    "data": [{ "id": "…", "text": "…", "author": { "id": "…", "username": "bob" }, "totalReplies": 1 }],
+    "meta": { "currentPage": 1, "itemsPerPage": 20, "totalItems": 2, "totalPages": 1 }
+  }
+}
+```
+
+پست و صفحه‌ی کامنت‌ها با سه query موازی خوانده می‌شوند (پست، `count` و `findMany` روی partial index کامنت‌های سطح‌اول)، پس N+1 ندارد. پست ناموجود 404 می‌دهد.
+
+### قرارداد نام‌گذاری (camelCase)
+
+**تصمیم:** همه‌ی فیلدهای JSON پاسخ‌ها **camelCase** هستند. صورت تسک برای مقادیر محاسبه‌شده snake_case نوشته است (`total_comments`)، اما برای `meta` صفحه‌بندی camelCase (`currentPage`). یک API نباید دو قرارداد را با هم داشته باشد. camelCase با TypeScript، خروجی Prisma و `meta` خود تسک یکسان است و نیاز به لایه‌ی تبدیل ندارد. ستون‌های دیتابیس snake_case هستند و نگاشت با `@map` در schema انجام می‌شود.
+
+| نام در صورت تسک        | فیلد در API                                           |
+| ---------------------- | ----------------------------------------------------- |
+| `total_comments`       | `totalComments` (شامل ریپلای‌ها)                       |
+| `total_replies`        | `totalReplies` (فقط فرزندان مستقیم)                    |
+| `total_posts_created`  | `stats.totalPosts` در پروفایل                          |
+| `total_comments_made`  | `stats.totalComments` در پروفایل                       |
+| `parent_comment_id`    | ورودی: هر دو نام پذیرفته می‌شوند؛ خروجی: `parentCommentId` |
+
+**استثنای ورودی:** چون تسک نام `parent_comment_id` را صریحاً برای body کامنت تعیین کرده، این نام به‌عنوان **alias ورودی** پذیرفته می‌شود و در DTO به `parentCommentId` نگاشت می‌شود. ارسال هر دو با مقدار متفاوت 400 می‌دهد. سرویس فقط یک فیلد (`parentCommentId`) می‌بیند.
+
+### خلاصه‌ی آخرین کامنت
+
+`latestComment.text` در فید (و هر جایی که `PostResponse` برمی‌گردد) **snippet** است: حداکثر ۲۸۰ کاراکتر و در صورت کوتاه شدن با `…` در انتها. همان تابع `excerpt` پروفایل (`src/common/utils/text.util.ts`) استفاده می‌شود و برش هیچ‌وقت یک surrogate pair (مثل ایموجی) را نصف نمی‌کند. متن کامل در لیست کامنت‌ها برمی‌گردد.
 
 ## ۱۲. احراز هویت و امنیت
 
@@ -218,6 +270,16 @@ curl -X POST http://localhost:3001/api/v1/auth/register \
 - آنچه cache می‌شود **DTO نهایی** است، نه مدل خام Prisma. هنگام خواندن، شکل داده بررسی و تاریخ‌ها به `Date` تبدیل می‌شوند.
 - ورودی خراب یا ناسازگار حذف و از PostgreSQL بازسازی می‌شود.
 - اگر Redis در دسترس نباشد، همه‌ی عملیات cache بی‌صدا `null` برمی‌گردانند و فید مستقیماً از PostgreSQL خوانده می‌شود (بدون 500).
+
+### چرا generation به‌جای حذف (`DEL`) کلید cache؟
+
+صورت تسک می‌گوید با ایجاد پست، «کلید cache فید حذف شود». هدف آن، یعنی دیدن داده‌ی تازه توسط بازدیدکننده‌ی بعدی، کاملاً برآورده می‌شود، اما با یک `INCR` به‌جای `DEL`:
+
+- **فید یک کلید نیست.** به ازای هر ترکیب `page` و `limit` یک کلید جدا وجود دارد. با `DEL` باید همه‌ی این کلیدها پیدا شوند: `KEYS` در production، Redis را مسدود می‌کند و `SCAN` چند round-trip، کند و غیراتمیک است. نگه‌داشتن لیست کلیدها در یک Set هم یک ساختار اضافه است که خودش باید همگام بماند.
+- **`INCR` اتمیک و O(1) است.** چون generation بخشی از نام کلید هر صفحه است، بعد از `INCR` هیچ خواننده‌ای به کلیدهای قبلی نمی‌رسد. invalidation همه‌ی صفحات با یک فرمان انجام می‌شود.
+- **race شرایط حذف را ندارد.** با `DEL`، درخواستی که قبل از ایجاد پست داده را از PostgreSQL خوانده، می‌تواند بعد از `DEL` داده‌ی کهنه را دوباره در همان کلید بنویسد. در این طراحی، خواننده generation را **قبل از** query می‌گیرد و زیر همان generation می‌نویسد؛ پس نتیجه‌ی کهنه در کلیدی می‌نشیند که دیگر خوانده نمی‌شود.
+- **پاک‌سازی خودکار:** کلیدهای generationهای قبلی با TTL (`FEED_CACHE_TTL_SECONDS`) حذف می‌شوند.
+- **هزینه:** تا پایان TTL کمی حافظه‌ی اضافه مصرف می‌شود که با TTL کوتاه ناچیز است.
 
 ## ۱۴. Rate limit و Lua
 
@@ -343,7 +405,6 @@ NODE_ENV=production npm run start:prod   # node dist/main.js
 - rate limit سراسری (مثلاً بر اساس IP) برای login و register.
 - مستندات OpenAPI/Swagger.
 - لاگ ساختاریافته، metrics و tracing.
-- Dockerfile برای اپلیکیشن (عمداً خارج از scope فعلی).
 
 ## ۲۵. راهنمای مصاحبه
 

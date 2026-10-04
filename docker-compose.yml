@@ -33,6 +33,55 @@ services:
       timeout: 3s
       retries: 10
 
+  # profile «app»: اجرای کامل برنامه در کانتینر با `docker compose --profile app up --build`
+  migrate:
+    profiles: [app]
+    build:
+      context: .
+      target: build
+    command: ['npm', 'run', 'prisma:migrate:deploy']
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-social_feed}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    profiles: [app]
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-social_feed}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
+      FEED_CACHE_TTL_SECONDS: ${FEED_CACHE_TTL_SECONDS:-30}
+      POST_CREATE_RATE_LIMIT: ${POST_CREATE_RATE_LIMIT:-10}
+      POST_CREATE_RATE_WINDOW_SECONDS: ${POST_CREATE_RATE_WINDOW_SECONDS:-60}
+    ports:
+      - '${PORT:-3000}:3000'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/v1/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:
   redis_data:

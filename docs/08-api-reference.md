@@ -106,7 +106,7 @@ Authorization: Bearer <accessToken>
 ```
 
 - `totalComments`: تعداد همه‌ی کامنت‌های پست، از جمله پاسخ‌ها
-- `latestComment`: جدیدترین کامنت پست (سطح اول یا پاسخ)، یا `null`
+- `latestComment`: جدیدترین کامنت پست (سطح اول یا پاسخ)، یا `null`. `text` آن snippet است: حداکثر ۲۸۰ کاراکتر، با `…` در صورت کوتاه شدن (تابع `excerpt` در `src/common/utils/text.util.ts`).
 
 **`CommentResponse`**:
 
@@ -278,13 +278,29 @@ GET /api/v1/posts?page=1&limit=5
 |---|---|
 | دسترسی | عمومی |
 | پارامتر | `id`: UUID نسخه‌ی ۴ (`ParseUUIDPipe`) |
+| Query | `page`، `limit` (صفحه‌بندی کامنت‌های سطح اول) |
 | وضعیت موفق | `200 OK` |
 
-**پاسخ موفق:** `PostResponse`
+**پاسخ موفق:** `PostThreadResponse`، یعنی `PostResponse` به‌علاوه‌ی فیلد `comments` از نوع `Paginated<CommentResponse>` که فقط کامنت‌های **سطح اول** را دارد. هر کامنت `author` و `totalReplies` دارد.
+
+```json
+{
+  "id": "6f1e2d3c-4b5a-4987-8a6b-5c4d3e2f1a0b",
+  "author": { "id": "0b7c6a8e-4f0e-4c1a-9a51-2f3d4e5a6b7c", "username": "sample_user" },
+  "totalComments": 2,
+  "latestComment": { "...": "..." },
+  "comments": {
+    "data": [{ "id": "9a8b7c6d-5e4f-4321-8abc-def012345678", "parentCommentId": null, "text": "nice post", "author": { "id": "...", "username": "another_user" }, "totalReplies": 1 }],
+    "meta": { "currentPage": 1, "itemsPerPage": 20, "totalItems": 1, "totalPages": 1 }
+  }
+}
+```
+
+پیاده‌سازی: `PostsService.findThread` با `Promise.all` سه query موازی اجرا می‌کند (`findById`، `comment.count` و `comment.findMany` با `commentReadSelect`). شرط `{ postId, parentCommentId: null }` و ترتیب `createdAt DESC, id DESC` روی partial index `comments_top_level_idx` می‌نشیند. این endpoint cache نمی‌شود.
 
 | خطا | علت |
 |---|---|
-| `400` | `Validation failed (uuid v 4 is expected)` |
+| `400` | `Validation failed (uuid v 4 is expected)` یا query نامعتبر |
 | `404` | `Post not found` |
 
 ---
@@ -306,6 +322,7 @@ GET /api/v1/posts?page=1&limit=5
 |---|---|---|---|
 | `text` | string | بله | پس از `trim` غیرخالی و حداکثر ۲۰۰۰ کاراکتر |
 | `parentCommentId` | string | خیر | UUID نسخه‌ی ۴. اگر ارسال شود، کامنت یک پاسخ است. |
+| `parent_comment_id` | string | خیر | alias ورودی `parentCommentId` با همان قواعد (نام صورت تسک). ارسال هر دو با مقدار متفاوت 400 می‌دهد. |
 
 ```json
 { "text": "nice post" }
@@ -313,6 +330,10 @@ GET /api/v1/posts?page=1&limit=5
 
 ```json
 { "text": "thanks!", "parentCommentId": "9a8b7c6d-5e4f-4321-8abc-def012345678" }
+```
+
+```json
+{ "text": "thanks!", "parent_comment_id": "9a8b7c6d-5e4f-4321-8abc-def012345678" }
 ```
 
 **پاسخ موفق:** `CommentResponse`

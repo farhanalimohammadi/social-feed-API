@@ -53,6 +53,34 @@ describe('Comments (e2e)', () => {
     expect(replies.body.data).toHaveLength(1);
   });
 
+  it('accepts parent_comment_id as the reply field', async () => {
+    const user = await createUser(app);
+    const server = app.app.getHttpServer();
+
+    const postId = (
+      await request(server)
+        .post('/api/v1/posts')
+        .set(auth(user))
+        .send({ content: 'post' })
+        .expect(201)
+    ).body.id;
+    const parentId = (
+      await request(server)
+        .post(`/api/v1/posts/${postId}/comments`)
+        .set(auth(user))
+        .send({ text: 'parent' })
+        .expect(201)
+    ).body.id;
+
+    const reply = await request(server)
+      .post(`/api/v1/posts/${postId}/comments`)
+      .set(auth(user))
+      .send({ text: 'reply', parent_comment_id: parentId })
+      .expect(201);
+
+    expect(reply.body.parentCommentId).toBe(parentId);
+  });
+
   it('rejects a reply whose parent is on another post', async () => {
     const user = await createUser(app);
 

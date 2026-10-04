@@ -1,4 +1,7 @@
+import type { Paginated } from '../../common/interfaces/paginated-response.interface.js';
+import { excerpt } from '../../common/utils/text.util.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import type { CommentResponse } from '../comments/comments.mapper.js';
 import type { postReadSelect } from './posts.select.js';
 //داده های خام دیتا بیس رو دریافت میکنه اونارو دسته بندی میکنه و به شکل استادارد به کلاینت تحویل میده میگه بیا 
 
@@ -27,6 +30,10 @@ export interface PostResponse {
   latestComment: LatestComment | null;
 }
 
+export interface PostThreadResponse extends PostResponse {
+  comments: Paginated<CommentResponse>;
+}
+
 export function toPostResponse(row: PostRow): PostResponse {
   const latest = row.comments[0];
   return {
@@ -40,7 +47,7 @@ export function toPostResponse(row: PostRow): PostResponse {
     latestComment: latest
       ? {
           id: latest.id,
-          text: latest.text,
+          text: excerpt(latest.text),
           createdAt: latest.createdAt,
           author: { id: latest.author.id, username: latest.author.username },
         }

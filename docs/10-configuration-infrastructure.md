@@ -78,7 +78,7 @@ ERROR [Bootstrap] Invalid environment configuration:
 
 ## Docker Compose
 
-`docker-compose.yml` با `name: social-feed` دو سرویس تعریف می‌کند:
+`docker-compose.yml` با `name: social-feed` دو سرویس پیش‌فرض تعریف می‌کند (سرویس‌های `migrate` و `app` در بخش Dockerfile آمده‌اند):
 
 | سرویس | image | پورت (میزبان:container) | volume | healthcheck | نکات |
 |---|---|---|---|---|---|
@@ -111,7 +111,29 @@ image رسمی PostgreSQL اسکریپت‌های `/docker-entrypoint-initdb.d/`
 
 ### Dockerfile
 
-در مخزن Dockerfile وجود ندارد. در محدوده‌ی فعلی، **خود برنامه‌ی NestJS روی میزبان اجرا می‌شود** و Docker Compose فقط وابستگی‌ها (PostgreSQL و Redis) را فراهم می‌کند.
+`Dockerfile` چندمرحله‌ای است و بر پایه‌ی `node:22-bookworm-slim` ساخته می‌شود:
+
+| مرحله | کار |
+|---|---|
+| `build` | `npm ci` کامل، `npm run prisma:generate` و `npm run build` |
+| `runtime` | `npm ci --omit=dev`، کپی `dist/` از مرحله‌ی `build`، `NODE_ENV=production`، اجرا با کاربر `node` و `CMD ["node", "dist/main.js"]` |
+
+`.dockerignore` پوشه‌های `node_modules`، `dist`، `src/generated`، `.git` و فایل‌های `.env` را از context حذف می‌کند تا image تمیز باشد و هیچ secretی وارد آن نشود.
+
+### profile `app` در Docker Compose
+
+دو سرویس دیگر فقط با `--profile app` فعال می‌شوند، پس `docker compose up -d` معمولی همچنان فقط PostgreSQL و Redis را اجرا می‌کند:
+
+| سرویس | image | نقش | وابستگی |
+|---|---|---|---|
+| `migrate` | مرحله‌ی `build` | اجرای یک‌باره‌ی `npm run prisma:migrate:deploy` | `postgres` باید healthy باشد |
+| `app` | مرحله‌ی `runtime` | اجرای API روی `${PORT:-3000}:3000` با healthcheck روی `GET /api/v1/health` | `migrate` با موفقیت تمام شده باشد و `redis` healthy باشد |
+
+```bash
+docker compose --profile app up --build -d
+```
+
+در کانتینر `app`، `DATABASE_URL` و `REDIS_URL` به نام سرویس‌ها (`postgres:5432` و `redis:6379`) اشاره می‌کنند و از `POSTGRES_*` ساخته می‌شوند. `JWT_SECRET` الزامی است و بقیه‌ی متغیرها پیش‌فرض‌های `.env.example` را دارند.
 
 ## نقش فایل پیکربندی Prisma
 
