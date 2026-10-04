@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ContentType {
+  text
+  image
+  video
+
+  @@map("content_type")
+}
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username     String   @unique @db.VarChar(30)
+  email        String   @unique @db.VarChar(254)
+  passwordHash String   @map("password_hash") @db.VarChar(100)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  posts    Post[]
+  comments Comment[]
+
+  @@map("users")
+}
+
+model Post {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  authorId    String      @map("author_id") @db.Uuid
+  contentType ContentType @default(text) @map("content_type")
+  content     String      @db.Text
+  caption     String?     @db.VarChar(500)
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  author   User      @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  comments Comment[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)], map: "posts_feed_idx")
+  @@index([authorId, createdAt(sort: Desc), id(sort: Desc)], map: "posts_author_idx")
+  @@map("posts")
+}
+
+model Comment {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId          String   @map("post_id") @db.Uuid
+  authorId        String   @map("author_id") @db.Uuid
+  parentCommentId String?  @map("parent_comment_id") @db.Uuid
+  text            String   @db.Text
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  post          Post      @relation(fields: [postId], references: [id], onDelete: Restrict)
+  author        User      @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  parentComment Comment?  @relation("CommentReplies", fields: [parentCommentId, postId], references: [id, postId], onDelete: Restrict)
+  replies       Comment[] @relation("CommentReplies")
+
+  @@unique([id, postId])
+  @@index([postId, createdAt(sort: Desc), id(sort: Desc)], map: "comments_post_idx")
+  @@index([authorId, createdAt(sort: Desc), id(sort: Desc)], map: "comments_author_idx")
+  @@map("comments")
+}
